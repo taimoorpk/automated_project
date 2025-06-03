@@ -25,6 +25,14 @@ jobs:
       with:
         aws-region: ${{ env.AWS_REGION }}
         role-to-assume: ${{ secrets.AWS_IAM_ROLE }}
+    - name: Debug AWS
+      run: |
+        aws configure list
+        aws sts get-caller-identity
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        AWS_REGION: us-east-1
 
     # Setup Python for Lambda packaging
     - name: Set up Python
