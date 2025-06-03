@@ -1,0 +1,70 @@
+name: Deploy Lambda Function
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: "eu-west-2"
+  TERRAFORM_VERSION: "1.5.5"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-region: ${{ env.AWS_REGION }}
+        role-to-assume: ${{ secrets.AWS_IAM_ROLE }}
+
+    # Setup Python for Lambda packaging
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    # Install dependencies and package Lambda code
+    - name: Package Lambda function
+      working-directory: ./lambda_function
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt -t ./package
+        cd package && zip -r ../lambda-code.zip . && cd ..
+        zip -g lambda-code.zip lambda_handler.py
+
+    # Setup Terraform
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+    # Initialize Terraform
+    - name: Terraform Init
+      working-directory: ./terraform
+      run: terraform init
+
+    # First step: Create S3 bucket only
+    - name: Create S3 Bucket
+      working-directory: ./terraform
+      run: |
+        terraform apply -auto-approve -var="initial_setup_complete=false"
+        echo "BUCKET_NAME=$(terraform output -raw lambda_code_bucket_name)" >> $GITHUB_ENV
+
+    # Upload Lambda code to S3
+    - name: Upload Lambda Code to S3
+      run: |
+        aws s3 cp ./lambda_function/lambda-code.zip s3://${{ env.BUCKET_NAME }}/lambda-code.zip
+
+    # Second step: Deploy Lambda and configure triggers
+    - name: Deploy Lambda Function
+      working-directory: ./terraform
+      run: terraform apply -auto-approve -var="initial_setup_complete=true"
